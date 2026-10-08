@@ -7,12 +7,14 @@ from config import GEMINI_API_KEY, EMBEDDING_MODEL
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+MAX_ATTEMPTS = 4
+
 
 def _embed(texts, task_type):
     """Ask Gemini to embed a list of texts. Retries if Google is busy."""
     last_error = None
 
-    for attempt in range(4):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             result = client.models.embed_content(
                 model=EMBEDDING_MODEL,
@@ -22,7 +24,13 @@ def _embed(texts, task_type):
             return [item.values for item in result.embeddings]
         except Exception as error:
             last_error = error
-            time.sleep(2 * (attempt + 1))  # wait 2s, 4s, 6s, then give up
+            print(
+                f"Embedding attempt {attempt}/{MAX_ATTEMPTS} failed: "
+                f"{type(error).__name__}: {str(error)[:300]}",
+                flush=True,
+            )
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(10 * attempt)  # wait 10s, 20s, 30s
 
     raise last_error
 
