@@ -1,0 +1,379 @@
+/* ---------- 3D scene layer (behind everything) ---------- */
+.scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.scene canvas {
+  display: block;
+}
+
+/* ---------- Page layout ---------- */
+.app {
+  position: relative;
+  z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 36px 18px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100vh;
+  text-align: left;
+}
+
+/* ---------- Header ---------- */
+.header h1 {
+  margin: 0;
+  font-size: 2.6rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  background: linear-gradient(90deg, #6aa5ff, #b57bff, #ff7bd5, #6aa5ff);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 8s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+.header p {
+  margin: 6px 0 0;
+  color: #9aa4b2;
+  font-size: 1.02rem;
+}
+
+/* ---------- Input rows ---------- */
+.row {
+  display: flex;
+  gap: 10px;
+}
+
+.row input {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #263041;
+  background: rgba(22, 27, 34, 0.8);
+  color: #e6edf3;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.row input::placeholder {
+  color: #6e7681;
+}
+
+.row input:focus {
+  outline: none;
+  border-color: #4f8cff;
+  box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.18);
+}
+
+.row input:disabled {
+  opacity: 0.55;
+}
+
+.row button {
+  padding: 14px 22px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4f8cff, #8a5cff);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+  box-shadow: 0 6px 18px rgba(79, 140, 255, 0.25);
+}
+
+.row button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(138, 92, 255, 0.35);
+}
+
+.row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ---------- Status messages ---------- */
+.error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255, 123, 114, 0.1);
+  border: 1px solid rgba(255, 123, 114, 0.35);
+  color: #ff9a92;
+}
+
+.success {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(86, 211, 100, 0.08);
+  border: 1px solid rgba(86, 211, 100, 0.3);
+  color: #6ee283;
+}
+
+.hint-line {
+  margin: 0;
+  color: #9aa4b2;
+  font-size: 0.9rem;
+}
+
+/* ---------- 3D tilt wrapper ---------- */
+.tilt {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  transition: transform 0.15s ease-out;
+  will-change: transform;
+}
+
+/* ---------- Chat area ---------- */
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #263041;
+  border-radius: 16px;
+  background: rgba(13, 17, 23, 0.65);
+  backdrop-filter: blur(8px);
+  min-height: 320px;
+  max-height: 58vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(79, 140, 255, 0.08);
+}
+
+.chat::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat::-webkit-scrollbar-thumb {
+  background: #2b3647;
+  border-radius: 8px;
+}
+
+/* ---------- Empty state and example chips ---------- */
+.empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.hint {
+  margin: 0;
+  color: #6e7681;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.chip {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid #263041;
+  background: rgba(79, 140, 255, 0.08);
+  color: #bcd0ff;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.2s, border-color 0.2s;
+}
+
+.chip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: rgba(79, 140, 255, 0.18);
+  border-color: #4f8cff;
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Messages ---------- */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bubble {
+  padding: 13px 16px;
+  border-radius: 16px;
+  max-width: 92%;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  animation: pop-in 0.25s ease-out;
+}
+
+.bubble p {
+  margin: 0 0 10px;
+}
+
+.bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.bubble h1,
+.bubble h2,
+.bubble h3 {
+  margin: 14px 0 8px;
+  font-size: 1.05rem;
+  color: #f0f6fc;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+
+.bubble li {
+  margin-bottom: 4px;
+}
+
+.bubble code {
+  background: #0b1018;
+  border: 1px solid #263041;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.9em;
+  color: #c9d7ff;
+}
+
+.bubble pre code {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #2f6fed, #6a4cff);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: rgba(21, 27, 36, 0.92);
+  border: 1px solid #263041;
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.failed {
+  border-color: rgba(255, 123, 114, 0.5);
+  color: #ff9a92;
+}
+
+/* animated dots after "Thinking" */
+.dots::after {
+  content: "";
+  animation: dots 1.2s steps(4) infinite;
+}
+
+@keyframes dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+}
+
+/* ---------- Sources and copy button ---------- */
+.sources {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #263041;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #9aa4b2;
+}
+
+.sources code {
+  background: #0b1018;
+  border: 1px solid #263041;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #9db7ff;
+}
+
+.bubble-tools {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid #263041;
+  color: #9aa4b2;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.copy-btn:hover {
+  color: #e6edf3;
+  border-color: #4f8cff;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 600px) {
+  .app {
+    padding: 22px 12px;
+  }
+
+  .header h1 {
+    font-size: 2rem;
+  }
+
+  .row button {
+    padding: 14px 16px;
+  }
+
+  .chat {
+    max-height: 52vh;
+  }
+}
