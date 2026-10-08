@@ -5,6 +5,18 @@ import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+// Repositories that visitors can load with one click.
+// To add more, copy a line and change the name and the link.
+const EXAMPLE_REPOS = [
+  { label: "YugendharD/devpulse", url: "https://github.com/YugendharD/devpulse" },
+  { label: "octocat/Spoon-Knife", url: "https://github.com/octocat/Spoon-Knife" },
+  { label: "octocat/Hello-World", url: "https://github.com/octocat/Hello-World" },
+  { label: "sindresorhus/slugify", url: "https://github.com/sindresorhus/slugify" },
+  { label: "tj/commander.js", url: "https://github.com/tj/commander.js" },
+  { label: "psf/requests", url: "https://github.com/psf/requests" },
+  { label: "expressjs/express", url: "https://github.com/expressjs/express" },
+];
+
 const EXAMPLE_QUESTIONS = [
   "What does this project do?",
   "How is the code structured?",
@@ -60,21 +72,28 @@ function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, asking]);
 
-  async function handleLoad(event) {
-    event.preventDefault();
-    if (!repoUrl.trim() || loadingRepo) return;
+  // Load any public GitHub repository (typed or clicked from the examples)
+  async function loadRepo(url) {
+    const cleanUrl = url.trim();
+    if (!cleanUrl || loadingRepo) return;
 
+    setRepoUrl(cleanUrl);
     setLoadingRepo(true);
     setLoadError("");
     try {
-      const data = await postJson("/ingest", { repo_url: repoUrl });
-      setRepo({ ...data, url: repoUrl });
+      const data = await postJson("/ingest", { repo_url: cleanUrl });
+      setRepo({ ...data, url: cleanUrl });
       setMessages([]);
     } catch (error) {
       setLoadError(error.message);
     } finally {
       setLoadingRepo(false);
     }
+  }
+
+  function handleLoad(event) {
+    event.preventDefault();
+    loadRepo(repoUrl);
   }
 
   // Ask a question. If the server forgot the repo (for example after
@@ -156,7 +175,7 @@ function App() {
       <div className="app">
         <header className="header">
           <h1>CodeRAG</h1>
-          <p>Paste a public GitHub repository and ask questions about its code.</p>
+          <p>Paste any public GitHub repository and ask questions about its code.</p>
         </header>
 
         <form className="row" onSubmit={handleLoad}>
@@ -171,12 +190,23 @@ function App() {
           </button>
         </form>
 
-        {loadingRepo && (
-          <p className="hint-line">
-            Reading the repository. If the server was asleep, the first try can
-            take about a minute.
-          </p>
-        )}
+        <p className="hint-line">
+          Or try an example. The first load can take about a minute while the
+          free server wakes up.
+        </p>
+        <div className="chips">
+          {EXAMPLE_REPOS.map((example) => (
+            <button
+              type="button"
+              key={example.url}
+              className="chip"
+              onClick={() => loadRepo(example.url)}
+              disabled={loadingRepo}
+            >
+              {example.label}
+            </button>
+          ))}
+        </div>
 
         {loadError && <p className="error">{loadError}</p>}
 
