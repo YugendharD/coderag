@@ -2,8 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import ThreeBackground from "./ThreeBackground";
 import "./App.css";
+import "./Progress.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+const POLL_MS = 2000;          // how often we ask how indexing is going
+const MAX_POLL_FAILURES = 6;   // short network hiccups are tolerated
 
 // Repositories that visitors can load with one click.
 // To add more, copy a line and change the name and the link.
@@ -24,14 +28,12 @@ const EXAMPLE_QUESTIONS = [
   "Where does the app start?",
 ];
 
-async function postJson(path, body) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function request(path, options) {
   let response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    response = await fetch(`${API_URL}${path}`, options);
   } catch {
     throw new Error("Cannot reach the server. Please try again in a moment.");
   }
@@ -45,13 +47,37 @@ async function postJson(path, body) {
 
   if (!response.ok) {
     const detail = data && data.detail;
-    throw new Error(
+    const error = new Error(
       typeof detail === "string"
         ? detail
         : "Something went wrong. Please try again."
     );
+    error.status = response.status;
+    throw error;
   }
   return data;
+}
+
+function postJson(path, body) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function getJson(path) {
+  return request(path);
+}
+
+function progressText(progress) {
+  if (progress.stage === "Embedding pieces" && progress.total > 0) {
+    return `Indexed ${progress.done} of ${progress.total} pieces`;
+  }
+  if (progress.stage === "Starting") {
+    return "Starting... if the server was asleep this can take about a minute";
+  }
+  return `${progress.stage}...`;
 }
 
 function App() {
@@ -59,6 +85,7 @@ function App() {
   const [repo, setRepo] = useState(null);
   const [loadingRepo, setLoadingRepo] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [progress, setProgress] = useState(null);
 
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
@@ -72,8 +99,45 @@ function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, asking]);
 
+  // Start indexing in the background and follow its progress.
+  // mode "quick" is fast; mode "full" indexes more pieces and is slower.
+  // Returns the result when it is finished, or throws an error.
+  async function runIndexing(url, mode) {
+    setProgress({ stage: "Starting", done: 0, total: 0 });
+
+    try {
+      let job = await postJson("/ingest", { repo_url: url, mode });
+      let failures = 0;
+
+      while (job.status === "running") {
+        setProgress({ stage: job.stage, done: job.done, total: job.total });
+        await sleep(POLL_MS);
+
+        try {
+          job = await getJson(`/ingest/${job.job_id}`);
+          failures = 0;
+        } catch (error) {
+          // 404 means the server forgot the job. Other problems may be
+          // short hiccups, so we try a few more times.
+          failures += 1;
+          if (error.status === 404 || failures >= MAX_POLL_FAILURES) {
+            throw error;
+          }
+        }
+      }
+
+      if (job.status === "error") {
+        throw new Error(job.error || "Indexing failed. Please try again.");
+      }
+
+      return { ...job.result, url };
+    } finally {
+      setProgress(null);
+    }
+  }
+
   // Load any public GitHub repository (typed or clicked from the examples)
-  async function loadRepo(url) {
+  async function loadRepo(url, mode = "quick") {
     const cleanUrl = url.trim();
     if (!cleanUrl || loadingRepo) return;
 
@@ -81,8 +145,8 @@ function App() {
     setLoadingRepo(true);
     setLoadError("");
     try {
-      const data = await postJson("/ingest", { repo_url: cleanUrl });
-      setRepo({ ...data, url: cleanUrl });
+      const result = await runIndexing(cleanUrl, mode);
+      setRepo(result);
       setMessages([]);
     } catch (error) {
       setLoadError(error.message);
@@ -97,14 +161,14 @@ function App() {
   }
 
   // Ask a question. If the server forgot the repo (for example after
-  // a restart), load it again automatically and retry once.
+  // a restart), index it again automatically and retry once.
   async function askWithRecovery(text) {
     const body = { repo_name: repo.repo_name, question: text };
     try {
       return await postJson("/ask", body);
     } catch (error) {
       if (error.message.includes("hasn't been ingested")) {
-        await postJson("/ingest", { repo_url: repo.url });
+        await runIndexing(repo.url, repo.mode || "quick");
         return await postJson("/ask", body);
       }
       throw error;
@@ -168,6 +232,9 @@ function App() {
     element.style.transform = "perspective(1000px) rotateX(0deg) rotateY(0deg)";
   }
 
+  const hasProgressTotal = progress && progress.total > 0;
+  const isQuick = repo && repo.mode === "quick";
+
   return (
     <>
       <ThreeBackground busy={asking || loadingRepo} />
@@ -186,13 +253,13 @@ function App() {
             onChange={(e) => setRepoUrl(e.target.value)}
           />
           <button type="submit" disabled={loadingRepo || !repoUrl.trim()}>
-            {loadingRepo ? "Reading repo..." : "Load repo"}
+            {loadingRepo ? "Indexing..." : "Load repo"}
           </button>
         </form>
 
         <p className="hint-line">
-          Or try an example. The first load can take about a minute while the
-          free server wakes up.
+          Or try an example. A quick index usually takes about 10 seconds, and
+          the first load may be slower while the free server wakes up.
         </p>
         <div className="chips">
           {EXAMPLE_REPOS.map((example) => (
@@ -208,13 +275,52 @@ function App() {
           ))}
         </div>
 
+        {progress && (
+          <div className="progress" role="status">
+            <p className="progress-text">{progressText(progress)}</p>
+            <div className="progress-track">
+              <div
+                className={`progress-fill ${hasProgressTotal ? "" : "indeterminate"}`}
+                style={
+                  hasProgressTotal
+                    ? {
+                        width: `${Math.round(
+                          (progress.done / progress.total) * 100
+                        )}%`,
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        )}
+
         {loadError && <p className="error">{loadError}</p>}
 
-        {repo && (
+        {repo && !progress && (
           <p className="success">
             Loaded <strong>{repo.repo_name}</strong>: {repo.files_read} files,{" "}
             {repo.chunks_saved} pieces. Ask away!
           </p>
+        )}
+
+        {repo && !progress && repo.truncated && (
+          <div className="notice">
+            <span>
+              Large repository: only part of it was indexed ({repo.files_read}{" "}
+              of {repo.files_found} readable files). Answers may miss the rest.
+            </span>
+            {isQuick && (
+              <button
+                type="button"
+                className="notice-btn"
+                onClick={() => loadRepo(repo.url, "full")}
+                disabled={loadingRepo}
+              >
+                Index more (about 2 minutes)
+              </button>
+            )}
+          </div>
         )}
 
         <div

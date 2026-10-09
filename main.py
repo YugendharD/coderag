@@ -1,21 +1,25 @@
 import os
-import threading
-import traceback
 
-import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from embeddings import RateLimited, DailyQuotaExceeded
-from ingest import ingest_repo
+from embeddings import DailyQuotaExceeded, RateLimited
+from jobs import (
+    BUSY_MESSAGE,
+    DAILY_MESSAGE,
+    QUOTA_MESSAGE,
+    Busy,
+    get_job,
+    start_job,
+)
 from qa import answer_question, AnswerUnavailable
 from vector_store import get_collection, query_collection
 
 app = FastAPI(title="CodeRAG")
 
 # Websites that are allowed to talk to this backend.
-# Later we add the live website address through the ALLOWED_ORIGINS setting.
+# The live website address is added through the ALLOWED_ORIGINS setting.
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -30,26 +34,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-QUOTA_MESSAGE = (
-    "Google's free AI quota is busy right now. "
-    "Please wait a minute and try again."
-)
-DAILY_MESSAGE = (
-    "Google's free daily AI quota for this site looks used up. "
-    "It usually resets once a day, so please try again later."
-)
-BUSY_MESSAGE = (
-    "Another repository is being indexed right now. "
-    "Please wait a minute and try again."
-)
-
-# Only one repository is indexed at a time, so that two people do not
-# fight over Google's small free quota.
-_ingest_lock = threading.Lock()
-
 
 class IngestRequest(BaseModel):
     repo_url: str
+    mode: str = "quick"   # "quick" (fast) or "full" (more pieces, slower)
 
 
 class AskRequest(BaseModel):
@@ -64,33 +52,28 @@ def home():
 
 @app.post("/ingest")
 def ingest(request: IngestRequest):
-    if not _ingest_lock.acquire(blocking=False):
-        raise HTTPException(status_code=429, detail=BUSY_MESSAGE)
-
+    """Start indexing in the background. Returns a job to check on."""
     try:
-        return ingest_repo(request.repo_url)
+        return start_job(request.repo_url, request.mode)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
-    except DailyQuotaExceeded:
-        raise HTTPException(status_code=429, detail=DAILY_MESSAGE)
-    except RateLimited:
-        raise HTTPException(status_code=429, detail=QUOTA_MESSAGE)
-    except requests.RequestException as error:
-        # the real reason is printed in the backend log
-        print(f"GitHub download failed: {error!r}", flush=True)
+    except Busy:
+        raise HTTPException(status_code=429, detail=BUSY_MESSAGE)
+
+
+@app.get("/ingest/{job_id}")
+def ingest_status(job_id: str):
+    """How far along is this indexing job?"""
+    job = get_job(job_id)
+    if job is None:
         raise HTTPException(
-            status_code=502,
-            detail="Could not download the repository from GitHub. Please try again.",
+            status_code=404,
+            detail=(
+                "I lost track of this indexing job (the server may have "
+                "restarted). Please load the repository again."
+            ),
         )
-    except Exception:
-        # any other problem (for example while embedding the code)
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail="Something went wrong while reading the repository. Please try again.",
-        )
-    finally:
-        _ingest_lock.release()
+    return job
 
 
 @app.post("/ask")

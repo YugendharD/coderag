@@ -115,8 +115,12 @@ def _embed(texts, task_type):
     raise last_error
 
 
-def embed_documents(texts):
-    """Embed many code pieces, in small paced batches."""
+def embed_documents(texts, on_progress=None):
+    """Embed many code pieces, in small paced batches.
+
+    on_progress(done, total) is called after every batch, so the website
+    can show a progress bar.
+    """
     total = len(texts)
     vectors = []
 
@@ -127,6 +131,9 @@ def embed_documents(texts):
             flush=True,
         )
         vectors.extend(_embed(batch, "RETRIEVAL_DOCUMENT"))
+
+        if on_progress:
+            on_progress(len(vectors), total)
 
     return vectors
 

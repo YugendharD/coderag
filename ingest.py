@@ -25,10 +25,13 @@ SKIP_FOLDERS = {
 SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
 # Limits that keep loading inside Google's free embedding allowance.
-# 80 pieces of about 2500 characters take roughly 2 to 3 minutes.
+# Google's free plan allows only about 60 pieces per minute in our setup:
+#   quick = fits inside one minute (usually about 10 seconds)
+#   full  = needs roughly 2 minutes
+QUICK_MAX_CHUNKS = 45
+FULL_MAX_CHUNKS = 80
 MAX_FILE_BYTES = 60_000   # skip big files
 MAX_FILES = 80            # read at most this many files
-MAX_CHUNKS = 80           # create at most this many pieces
 CHUNK_SIZE = 2500         # bigger pieces = fewer pieces = faster
 CHUNK_OVERLAP = 200
 
@@ -81,13 +84,30 @@ def should_read(path, size):
     return size <= MAX_FILE_BYTES
 
 
-def ingest_repo(repo_url):
+def ingest_repo(repo_url, progress=None, mode="quick"):
+    """Download, cut up and store a repository.
+
+    mode "quick" indexes the first pieces only (fast).
+    mode "full" indexes more pieces (slower on the free plan).
+
+    progress(stage, done=None, total=None) is called along the way, so the
+    website can show what is happening.
+    """
+
+    def report(*args):
+        if progress:
+            progress(*args)
+
+    max_chunks = FULL_MAX_CHUNKS if mode == "full" else QUICK_MAX_CHUNKS
+
     owner, repo = parse_repo_url(repo_url)
     repo_name = f"{owner}_{repo}"
 
-    print(f"Downloading {owner}/{repo} ...", flush=True)
+    report("Downloading from GitHub")
+    print(f"Downloading {owner}/{repo} ({mode} index) ...", flush=True)
     zip_bytes = download_repo_zip(owner, repo)
 
+    report("Reading files")
     chunks = []
     paths = []
     files_read = 0
@@ -110,7 +130,7 @@ def ingest_repo(repo_url):
         candidates.sort(key=lambda item: (item[0].count("/"), item[0].lower()))
 
         for path, info in candidates:
-            if files_read >= MAX_FILES or len(chunks) >= MAX_CHUNKS:
+            if files_read >= MAX_FILES or len(chunks) >= max_chunks:
                 truncated = True
                 break
 
@@ -124,7 +144,7 @@ def ingest_repo(repo_url):
 
             files_read += 1
             for piece in chunk_text(text, CHUNK_SIZE, CHUNK_OVERLAP):
-                if len(chunks) >= MAX_CHUNKS:
+                if len(chunks) >= max_chunks:
                     truncated = True
                     break
                 chunks.append(f"File: {path}\n{piece}")
@@ -139,11 +159,14 @@ def ingest_repo(repo_url):
         flush=True,
     )
 
-    save_chunks(repo_name, chunks, paths)
+    report("Embedding pieces", 0, len(chunks))
+    save_chunks(repo_name, chunks, paths, progress)
     print("Done.", flush=True)
 
     return {
         "repo_name": repo_name,
+        "mode": mode,
+        "files_found": len(candidates),
         "files_read": files_read,
         "chunks_saved": len(chunks),
         "truncated": truncated,

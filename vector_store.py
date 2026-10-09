@@ -13,7 +13,7 @@ def make_collection_name(repo_name):
     return "repo_" + safe
 
 
-def save_chunks(repo_name, chunks, paths):
+def save_chunks(repo_name, chunks, paths, progress=None):
     """Embed every chunk, then replace the stored copy of this repo.
 
     The old copy is only removed AFTER all embeddings succeeded, so a
@@ -21,10 +21,17 @@ def save_chunks(repo_name, chunks, paths):
     """
     name = make_collection_name(repo_name)
 
+    def on_embed_progress(done, total):
+        if progress:
+            progress("Embedding pieces", done, total)
+
     # 1. Do the slow part first (this can fail if Google is busy)
-    vectors = embed_documents(chunks)
+    vectors = embed_documents(chunks, on_progress=on_embed_progress)
 
     # 2. Only now replace the old data
+    if progress:
+        progress("Saving to the database")
+
     try:
         client.delete_collection(name)
     except Exception:
