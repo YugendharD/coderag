@@ -24,11 +24,11 @@ SKIP_FOLDERS = {
 
 SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
-# Limits that keep loading quick. Google's free plan embeds about 90
-# pieces per minute, so 150 pieces take roughly 2 minutes.
+# Limits that keep loading inside Google's free embedding allowance.
+# 80 pieces of about 2500 characters take roughly 2 to 3 minutes.
 MAX_FILE_BYTES = 60_000   # skip big files
 MAX_FILES = 80            # read at most this many files
-MAX_CHUNKS = 150          # create at most this many pieces
+MAX_CHUNKS = 80           # create at most this many pieces
 CHUNK_SIZE = 2500         # bigger pieces = fewer pieces = faster
 CHUNK_OVERLAP = 200
 

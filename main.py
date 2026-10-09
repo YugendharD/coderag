@@ -1,4 +1,5 @@
 import os
+import threading
 import traceback
 
 import requests
@@ -6,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from embeddings import RateLimited
+from embeddings import RateLimited, DailyQuotaExceeded
 from ingest import ingest_repo
 from qa import answer_question, AnswerUnavailable
 from vector_store import get_collection, query_collection
@@ -33,6 +34,18 @@ QUOTA_MESSAGE = (
     "Google's free AI quota is busy right now. "
     "Please wait a minute and try again."
 )
+DAILY_MESSAGE = (
+    "Google's free daily AI quota for this site looks used up. "
+    "It usually resets once a day, so please try again later."
+)
+BUSY_MESSAGE = (
+    "Another repository is being indexed right now. "
+    "Please wait a minute and try again."
+)
+
+# Only one repository is indexed at a time, so that two people do not
+# fight over Google's small free quota.
+_ingest_lock = threading.Lock()
 
 
 class IngestRequest(BaseModel):
@@ -51,14 +64,19 @@ def home():
 
 @app.post("/ingest")
 def ingest(request: IngestRequest):
+    if not _ingest_lock.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail=BUSY_MESSAGE)
+
     try:
         return ingest_repo(request.repo_url)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
+    except DailyQuotaExceeded:
+        raise HTTPException(status_code=429, detail=DAILY_MESSAGE)
     except RateLimited:
         raise HTTPException(status_code=429, detail=QUOTA_MESSAGE)
     except requests.RequestException as error:
-        # the real reason is printed in the backend terminal
+        # the real reason is printed in the backend log
         print(f"GitHub download failed: {error!r}", flush=True)
         raise HTTPException(
             status_code=502,
@@ -71,6 +89,8 @@ def ingest(request: IngestRequest):
             status_code=500,
             detail="Something went wrong while reading the repository. Please try again.",
         )
+    finally:
+        _ingest_lock.release()
 
 
 @app.post("/ask")
@@ -87,6 +107,8 @@ def ask(request: AskRequest):
 
     try:
         results = query_collection(collection, request.question)
+    except DailyQuotaExceeded:
+        raise HTTPException(status_code=429, detail=DAILY_MESSAGE)
     except RateLimited:
         raise HTTPException(status_code=429, detail=QUOTA_MESSAGE)
 
