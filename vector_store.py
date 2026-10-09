@@ -14,9 +14,17 @@ def make_collection_name(repo_name):
 
 
 def save_chunks(repo_name, chunks, paths):
-    """Embed every chunk and store it. Replaces older data for this repo."""
+    """Embed every chunk, then replace the stored copy of this repo.
+
+    The old copy is only removed AFTER all embeddings succeeded, so a
+    failure never leaves the repo empty.
+    """
     name = make_collection_name(repo_name)
 
+    # 1. Do the slow part first (this can fail if Google is busy)
+    vectors = embed_documents(chunks)
+
+    # 2. Only now replace the old data
     try:
         client.delete_collection(name)
     except Exception:
@@ -24,22 +32,14 @@ def save_chunks(repo_name, chunks, paths):
 
     collection = client.create_collection(name)
 
-    batch_size = 50
-    total = len(chunks)
-
-    for start in range(0, total, batch_size):
-        batch_chunks = chunks[start:start + batch_size]
-        batch_paths = paths[start:start + batch_size]
-
-        end = start + len(batch_chunks)
-        print(f"Embedding pieces {start + 1}-{end} of {total} ...", flush=True)
-        vectors = embed_documents(batch_chunks)
-
+    batch_size = 100
+    for start in range(0, len(chunks), batch_size):
+        end = start + batch_size
         collection.add(
-            ids=[f"{repo_name}-{start + i}" for i in range(len(batch_chunks))],
-            documents=batch_chunks,
-            embeddings=vectors,
-            metadatas=[{"path": p} for p in batch_paths],
+            ids=[f"{repo_name}-{i}" for i in range(start, min(end, len(chunks)))],
+            documents=chunks[start:end],
+            embeddings=vectors[start:end],
+            metadatas=[{"path": p} for p in paths[start:end]],
         )
 
     return collection

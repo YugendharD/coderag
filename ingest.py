@@ -12,7 +12,8 @@ ALLOWED_EXTENSIONS = (
     ".md", ".txt", ".yml", ".yaml", ".toml",
 )
 
-ALLOWED_NAMES = {"package.json"}
+# Files without an extension that are still worth reading
+ALLOWED_NAMES = {"package.json", "README", "Dockerfile", "Makefile"}
 
 # Folders we skip so that loading stays fast
 SKIP_FOLDERS = {
@@ -23,12 +24,13 @@ SKIP_FOLDERS = {
 
 SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
-# Limits that keep loading quick
+# Limits that keep loading quick. Google's free plan embeds about 90
+# pieces per minute, so 150 pieces take roughly 2 minutes.
 MAX_FILE_BYTES = 60_000   # skip big files
 MAX_FILES = 80            # read at most this many files
-MAX_CHUNKS = 400          # create at most this many pieces
-CHUNK_SIZE = 1500         # bigger pieces = fewer pieces = faster
-CHUNK_OVERLAP = 150
+MAX_CHUNKS = 150          # create at most this many pieces
+CHUNK_SIZE = 2500         # bigger pieces = fewer pieces = faster
+CHUNK_OVERLAP = 200
 
 
 def parse_repo_url(repo_url):

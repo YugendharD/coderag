@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from embeddings import RateLimited
 from ingest import ingest_repo
 from qa import answer_question, AnswerUnavailable
 from vector_store import get_collection, query_collection
@@ -26,6 +27,11 @@ app.add_middleware(
     allow_origins=origins,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+QUOTA_MESSAGE = (
+    "Google's free AI quota is busy right now. "
+    "Please wait a minute and try again."
 )
 
 
@@ -49,6 +55,8 @@ def ingest(request: IngestRequest):
         return ingest_repo(request.repo_url)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
+    except RateLimited:
+        raise HTTPException(status_code=429, detail=QUOTA_MESSAGE)
     except requests.RequestException as error:
         # the real reason is printed in the backend terminal
         print(f"GitHub download failed: {error!r}", flush=True)
@@ -77,7 +85,10 @@ def ask(request: AskRequest):
             detail="This repository hasn't been ingested yet.",
         )
 
-    results = query_collection(collection, request.question)
+    try:
+        results = query_collection(collection, request.question)
+    except RateLimited:
+        raise HTTPException(status_code=429, detail=QUOTA_MESSAGE)
 
     try:
         answer = answer_question(request.question, results)
