@@ -1,0 +1,33 @@
+
+.app .panel {
+  background: rgba(8, 10, 24, 0.38);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.app .chat-panel {
+  background: rgba(4, 6, 16, 0.1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app .chat-head,
+.app .ask-row {
+  background: rgba(8, 10, 24, 0.5);
+}
+
+.app .bubble.assistant {
+  background: rgba(10, 14, 30, 0.88);
+}
+
+.app .hint,
+.app .empty-note {
+  color: #c3cfe2;
+}
+
+.app .hint-line {
+  color: #b4c0d4;
+}
+
+.app .empty .hint {
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+}

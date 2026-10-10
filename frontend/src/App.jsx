@@ -28,6 +28,15 @@ const EXAMPLE_QUESTIONS = [
   "Where does the app start?",
 ];
 
+// The steps shown in the pipeline panel (like stars in a constellation)
+const PIPELINE_STEPS = [
+  { label: "Download", hint: "Get the repository from GitHub" },
+  { label: "Read files", hint: "Pick the useful code files" },
+  { label: "Embed", hint: "Turn code into numbers with Gemini" },
+  { label: "Store", hint: "Save it in the vector database" },
+  { label: "Answer", hint: "Find the best pieces and ask Gemini" },
+];
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function request(path, options) {
@@ -80,6 +89,18 @@ function progressText(progress) {
   return `${progress.stage}...`;
 }
 
+// Which pipeline step is working right now? (-1 = none)
+function activeStepIndex(progress, asking) {
+  if (progress) {
+    if (progress.stage === "Reading files") return 1;
+    if (progress.stage === "Embedding pieces") return 2;
+    if (progress.stage === "Saving to the database") return 3;
+    return 0;
+  }
+  if (asking) return 4;
+  return -1;
+}
+
 function App() {
   const [repoUrl, setRepoUrl] = useState("");
   const [repo, setRepo] = useState(null);
@@ -93,7 +114,6 @@ function App() {
   const [copiedIndex, setCopiedIndex] = useState(null);
 
   const bottomRef = useRef(null);
-  const tiltRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -214,132 +234,141 @@ function App() {
     }
   }
 
-  // 3D tilt: the chat panel leans toward the mouse
-  function handleTilt(event) {
-    const element = tiltRef.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width - 0.5;
-    const y = (event.clientY - rect.top) / rect.height - 0.5;
-    element.style.transform = `perspective(1000px) rotateX(${(-y * 4).toFixed(
-      2
-    )}deg) rotateY(${(x * 6).toFixed(2)}deg)`;
-  }
-
-  function resetTilt() {
-    const element = tiltRef.current;
-    if (!element) return;
-    element.style.transform = "perspective(1000px) rotateX(0deg) rotateY(0deg)";
-  }
-
   const hasProgressTotal = progress && progress.total > 0;
   const isQuick = repo && repo.mode === "quick";
+  const activeStep = activeStepIndex(progress, asking);
+
+  const lastWithSources = [...messages]
+    .reverse()
+    .find((message) => message.sources && message.sources.length > 0);
+  const latestSources = lastWithSources ? lastWithSources.sources : [];
 
   return (
     <>
       <ThreeBackground busy={asking || loadingRepo} />
 
       <div className="app">
-        <header className="header">
-          <h1>CodeRAG</h1>
-          <p>Paste any public GitHub repository and ask questions about its code.</p>
+        {/* ---------- top bar ---------- */}
+        <header className="topbar">
+          <div>
+            <h1>CodeRAG</h1>
+            <p>Paste any public GitHub repository and ask questions about its code.</p>
+          </div>
+          <a
+            className="topbar-link"
+            href="https://github.com/YugendharD/coderag"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on GitHub
+          </a>
         </header>
 
-        <form className="row" onSubmit={handleLoad}>
-          <input
-            type="text"
-            placeholder="https://github.com/owner/repo"
-            value={repoUrl}
-            onChange={(e) => setRepoUrl(e.target.value)}
-          />
-          <button type="submit" disabled={loadingRepo || !repoUrl.trim()}>
-            {loadingRepo ? "Indexing..." : "Load repo"}
-          </button>
-        </form>
+        {/* ---------- left: repository ---------- */}
+        <aside className="panel side-panel">
+          <h2>Repository</h2>
 
-        <p className="hint-line">
-          Or try an example. A quick index usually takes about 10 seconds, and
-          the first load may be slower while the free server wakes up.
-        </p>
-        <div className="chips">
-          {EXAMPLE_REPOS.map((example) => (
-            <button
-              type="button"
-              key={example.url}
-              className="chip"
-              onClick={() => loadRepo(example.url)}
-              disabled={loadingRepo}
-            >
-              {example.label}
+          <form className="row stack" onSubmit={handleLoad}>
+            <input
+              type="text"
+              placeholder="https://github.com/owner/repo"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+            />
+            <button type="submit" disabled={loadingRepo || !repoUrl.trim()}>
+              {loadingRepo ? "Indexing..." : "Load repo"}
             </button>
-          ))}
-        </div>
+          </form>
 
-        {progress && (
-          <div className="progress" role="status">
-            <p className="progress-text">{progressText(progress)}</p>
-            <div className="progress-track">
-              <div
-                className={`progress-fill ${hasProgressTotal ? "" : "indeterminate"}`}
-                style={
-                  hasProgressTotal
-                    ? {
-                        width: `${Math.round(
-                          (progress.done / progress.total) * 100
-                        )}%`,
-                      }
-                    : undefined
-                }
-              />
+          {progress && (
+            <div className="progress" role="status">
+              <p className="progress-text">{progressText(progress)}</p>
+              <div className="progress-track">
+                <div
+                  className={`progress-fill ${
+                    hasProgressTotal ? "" : "indeterminate"
+                  }`}
+                  style={
+                    hasProgressTotal
+                      ? {
+                          width: `${Math.round(
+                            (progress.done / progress.total) * 100
+                          )}%`,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {loadError && <p className="error">{loadError}</p>}
+          {loadError && <p className="error">{loadError}</p>}
 
-        {repo && !progress && (
-          <p className="success">
-            Loaded <strong>{repo.repo_name}</strong>: {repo.files_read} files,{" "}
-            {repo.chunks_saved} pieces. Ask away!
+          {repo && !progress && (
+            <p className="success">
+              Loaded <strong>{repo.repo_name}</strong>: {repo.files_read} files,{" "}
+              {repo.chunks_saved} pieces. Ask away!
+            </p>
+          )}
+
+          {repo && !progress && repo.truncated && (
+            <div className="notice">
+              <span>
+                Large repository: only part of it was indexed (
+                {repo.files_read} of {repo.files_found} readable files). Answers
+                may miss the rest.
+              </span>
+              {isQuick && (
+                <button
+                  type="button"
+                  className="notice-btn"
+                  onClick={() => loadRepo(repo.url, "full")}
+                  disabled={loadingRepo}
+                >
+                  Index more (about 2 minutes)
+                </button>
+              )}
+            </div>
+          )}
+
+          <h2>Try an example</h2>
+          <p className="hint-line">
+            A quick index usually takes about 10 seconds. The first load may be
+            slower while the free server wakes up.
           </p>
-        )}
-
-        {repo && !progress && repo.truncated && (
-          <div className="notice">
-            <span>
-              Large repository: only part of it was indexed ({repo.files_read}{" "}
-              of {repo.files_found} readable files). Answers may miss the rest.
-            </span>
-            {isQuick && (
+          <div className="chips">
+            {EXAMPLE_REPOS.map((example) => (
               <button
                 type="button"
-                className="notice-btn"
-                onClick={() => loadRepo(repo.url, "full")}
+                key={example.url}
+                className="chip"
+                onClick={() => loadRepo(example.url)}
                 disabled={loadingRepo}
               >
-                Index more (about 2 minutes)
+                {example.label}
               </button>
-            )}
+            ))}
           </div>
-        )}
+        </aside>
 
-        <div
-          className="tilt"
-          ref={tiltRef}
-          onMouseMove={handleTilt}
-          onMouseLeave={resetTilt}
-        >
+        {/* ---------- middle: chat ---------- */}
+        <section className="panel chat-panel">
+          <div className="chat-head">
+            <h2>Conversation</h2>
+            {repo && <span className="repo-pill">{repo.repo_name}</span>}
+          </div>
+
           <main className="chat">
             {messages.length === 0 && (
               <div className="empty">
                 <p className="hint">
                   {repo
                     ? "Tap a question below, or type your own."
-                    : "Load a repository first, then your chat will appear here."}
+                    : "Load a repository on the left, then your chat will appear here."}
                 </p>
 
                 {repo && (
-                  <div className="chips">
+                  <div className="chips centered">
                     {EXAMPLE_QUESTIONS.map((example) => (
                       <button
                         type="button"
@@ -399,22 +428,85 @@ function App() {
             )}
             <div ref={bottomRef} />
           </main>
-        </div>
 
-        <form className="row" onSubmit={handleAsk}>
-          <input
-            type="text"
-            placeholder={
-              repo ? "Ask a question about the code..." : "Load a repo first"
-            }
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            disabled={!repo}
-          />
-          <button type="submit" disabled={!repo || asking || !question.trim()}>
-            Ask
-          </button>
-        </form>
+          <form className="row ask-row" onSubmit={handleAsk}>
+            <input
+              type="text"
+              placeholder={
+                repo ? "Ask a question about the code..." : "Load a repo first"
+              }
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              disabled={!repo}
+            />
+            <button type="submit" disabled={!repo || asking || !question.trim()}>
+              Ask
+            </button>
+          </form>
+        </section>
+
+        {/* ---------- right: pipeline and details ---------- */}
+        <aside className="panel info-panel">
+          <h2>Pipeline</h2>
+          <ol className="pipeline">
+            {PIPELINE_STEPS.map((step, index) => {
+              let state = "idle";
+              if (activeStep >= 0) {
+                if (index < activeStep) state = "done";
+                else if (index === activeStep) state = "active";
+              } else if (repo && index < 4) {
+                state = "done";
+              }
+
+              return (
+                <li key={step.label} className={`pipe ${state}`}>
+                  <span className="pipe-dot" />
+                  <div>
+                    <strong>{step.label}</strong>
+                    <small>{step.hint}</small>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+
+          <h2>Repository details</h2>
+          {repo ? (
+            <div className="stats">
+              <div className="stat">
+                <b>{repo.files_read}</b>
+                <span>Files read</span>
+              </div>
+              <div className="stat">
+                <b>{repo.chunks_saved}</b>
+                <span>Pieces stored</span>
+              </div>
+              <div className="stat">
+                <b>{repo.files_found ?? "-"}</b>
+                <span>Readable files</span>
+              </div>
+              <div className="stat">
+                <b>{repo.mode === "full" ? "Full" : "Quick"}</b>
+                <span>Index type</span>
+              </div>
+            </div>
+          ) : (
+            <p className="empty-note">No repository loaded yet.</p>
+          )}
+
+          <h2>Sources in the last answer</h2>
+          {latestSources.length > 0 ? (
+            <div className="source-list">
+              {latestSources.map((source) => (
+                <code key={source}>{source}</code>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-note">
+              Ask a question to see which files were used.
+            </p>
+          )}
+        </aside>
       </div>
     </>
   );
